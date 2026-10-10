@@ -58,11 +58,47 @@ export async function withVCR(
   return result
 }
 
+/**
+ *  对每条 content：
+    ├─ 是 string  → 直接 f(s)
+    └─ 是数组     → 逐块按 type 分发：
+        ├─ tool_result → 内容分三种：
+        │     ├─ string            → f(content)
+        │     ├─ 数组(内含 text/image) → 只对 text 调 f，image 原样
+        │     └─ 其他              → 原样返回
+        ├─ text       → { ..._, text: f(text) }         // 文本块，替换 text 字段
+        ├─ tool_use   → 对 input 每个值做 mapValues(_, f) // 工具调用参数里的字符串
+        └─ image      → 原样返回（不处理）
+
+    关键设计点：
+    - image 块被刻意跳过（vcr.ts:83, 97），因为图片是 base64/二进制，不是要规范化的字符串，f（dehydrate）也只会对 typeof s
+    === 'string' 生效。
+    - tool_use.input 用 mapValues 递归（vcr.ts:94），能把工具入参里的字符串一并处理，覆盖到嵌套一层对象的值。
+    - 末尾用 as 强转类型（vcr.ts:100），因为 switch 的穷举返回类型编译器无法自动收窄。
+
+    为什么需要它 —— 与 dehydrate/hydrate 配合
+
+    f 实际传入的是两个函数：
+
+    1. dehydrateValue（vcr.ts:137-151）——把运行期/机器相关的字符串「脱水」成占位符，例如：
+      - num_files="3" → num_files="[NUM]"
+      - duration_ms="123" / cost_usd="..." → [DURATION] / [COST]
+      - / → path.sep（平台路径分隔符统一）
+      - getCwd() → [CWD]
+      - 含 Files modified by user: 的整段 → Files modified by user: [FILES]
+    2. hydrateValue（vcr.ts:153-161）——回放时反向还原。
+ */
 function mapMessages(
+  // UserMessage | AssistantMessage -- 联合数据类型
+  // [...]['message'] -- 取出这个联合类型上 message 属性的类型。结果又是一个联合 = MessageParam | APIAssistantMessage
+  // [...]['message']['content'] -- 拿到 message 的 content 字段的类型 = string | ContentBlockParam[] | ContentBlock[]
+  //  末尾的 [] -- 「一个消息内容（content）的数组」——每个元素是一条 UserMessage 或 AssistantMessage 里
+  //    message.content 的内容（字符串或内容块数组）。
   messages: (UserMessage | AssistantMessage)['message']['content'][],
   f: (s: unknown) => unknown,
 ): (UserMessage | AssistantMessage)['message']['content'][] {
   return messages.map(_ => {
+    // 如果是字符串类型，则直接给函数 f
     if (typeof _ === 'string') {
       return f(_)
     }
@@ -134,6 +170,9 @@ function mapAssistantMessage(
   }
 }
 
+/**
+ * 字符串替换
+ */
 function dehydrateValue(s: unknown): unknown {
   if (typeof s !== 'string') {
     return s
