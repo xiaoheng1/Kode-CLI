@@ -1,3 +1,6 @@
+/**
+ * 消息的出入口双向适配器
+ */
 import { last } from 'lodash-es'
 
 import type {
@@ -8,13 +11,25 @@ import type {
 import { NO_CONTENT_MESSAGE } from '#core/ai/constants'
 import type { AssistantMessage, Message, UserMessage } from '#core/query'
 
+/**
+ * 内部消息 → Anthropic API 格式
+ */
 export function normalizeMessagesForAPI(
   messages: Message[],
 ): (UserMessage | AssistantMessage)[] {
+    /**
+     * 真实场景是这样的：
+
+         1. 用户发起请求，kode 调用 API，但网络/API 报错了。模型其实一个字都没返回。
+         2. 但 kode 的 UI 需要给用户展示一条"助手回复"（比如"请求失败，请重试"）。
+         3. 于是 kode 用 createAssistantAPIErrorMessage 造了一条 assistant 消息，塞进消息历史里，让界面能渲染出来。
+     */
   function isSyntheticApiErrorMessage(message: Message): boolean {
     return (
       message.type === 'assistant' &&
       message.isApiErrorMessage === true &&
+      // <synthetic> 是 kode 自己造的，不是任何 LLM 生成的。 它是 kode 用来标记"这条 assistant
+      // 消息是本地伪造的、不是真实模型输出"的哨兵值（sentinel）。
       message.message.model === '<synthetic>'
     )
   }
@@ -125,6 +140,9 @@ export function normalizeMessagesForAPI(
   return result
 }
 
+/**
+ * API 内容 → 内部格式 / 辅助判断
+ */
 export function normalizeContentFromAPI(
   content: APIMessage['content'],
 ): APIMessage['content'] {
