@@ -23,6 +23,7 @@ export function normalizeMessagesForAPI(
          1. 用户发起请求，kode 调用 API，但网络/API 报错了。模型其实一个字都没返回。
          2. 但 kode 的 UI 需要给用户展示一条"助手回复"（比如"请求失败，请重试"）。
          3. 于是 kode 用 createAssistantAPIErrorMessage 造了一条 assistant 消息，塞进消息历史里，让界面能渲染出来。
+         4. Synthetic -- 合成的
      */
   function isSyntheticApiErrorMessage(message: Message): boolean {
     return (
@@ -34,6 +35,11 @@ export function normalizeMessagesForAPI(
     )
   }
 
+  /**
+   * ：isApiErrorMessage 是一个「有实体的失败占位」，它代替了一次本该存在但失败的模型回复，逻辑上要当作"这次对话的响
+       应"来对待（用于选路、抛错）；而 isMeta 是一个「无实体的旁白」，它跟对话内容彻底无关，纯粹是 kode
+       塞给用户看的提示，逻辑上要当作"不存在"来对待（用于估算、计数）
+   */
   function isSyntheticMetaMessage(message: Message): boolean {
     return (
       message.type === 'assistant' &&
@@ -42,6 +48,11 @@ export function normalizeMessagesForAPI(
     )
   }
 
+  /**
+   *  它把用户消息的 content 从「string 或 ContentBlockParam[]」两种形态统一规约成
+       ContentBlockParam[]，保证后续的拼接（mergeUserMessages）和 API 序列化始终面对的是块数组，而不是需要到处判断 typeof
+       content === 'string'。
+   */
   function normalizeUserContent(
     content: UserMessage['message']['content'],
   ): ContentBlockParam[] {
@@ -51,6 +62,12 @@ export function normalizeMessagesForAPI(
     return content
   }
 
+  /**
+   * toolResultsFirst 是合并 user 消息后的顺序修复器：它把内容块里的所有 tool_result 块稳定地移到最前面，以满足 Anthropic
+   * API「tool_result 必须排在 text 之前」的要求，防止因消息合并导致块顺序乱掉而被 API 拒绝。
+   * @see https://platform.claude.com/docs/zh-CN/agents-and-tools/tool-use/handle-tool-calls
+   * assistant 里的 tool_use 和 user 里的 tool_result 靠 id 一一配对 —— 这是配对规则
+   */
   function toolResultsFirst(content: ContentBlockParam[]): ContentBlockParam[] {
     const toolResults: ContentBlockParam[] = []
     const rest: ContentBlockParam[] = []
@@ -64,6 +81,9 @@ export function normalizeMessagesForAPI(
     return [...toolResults, ...rest]
   }
 
+  /**
+   * 合并两个 user 消息
+   */
   function mergeUserMessages(
     base: UserMessage,
     next: UserMessage,
@@ -79,6 +99,12 @@ export function normalizeMessagesForAPI(
     }
   }
 
+  /**
+   * UserMessage            ← kode 内部类型（pipeline/types.ts:63）
+         └─ .message          ← MessageParam（Anthropic SDK 类型）
+              └─ .content     ← string | ContentBlockParam[]
+   * 为什么非 array 排除掉了，因为带工具结果时是数组
+   */
   function isUserToolResultMessage(message: Message): message is UserMessage {
     if (message.type !== 'user') return false
     if (!Array.isArray(message.message.content)) return false
@@ -87,12 +113,15 @@ export function normalizeMessagesForAPI(
 
   const result: (UserMessage | AssistantMessage)[] = []
   for (const message of messages) {
+    // 它的作用是表达「一个工具正在执行，这是它的中间进度」，介于「模型发起 tool_use」和「工具返回最终 tool_result」之间。
+    // progress 消息永远不会发给模型。它纯粹是给 UI/用户看的，不参与对话语义
     if (message.type === 'progress') continue
     if (isSyntheticApiErrorMessage(message)) continue
     if (isSyntheticMetaMessage(message)) continue
 
     switch (message.type) {
       case 'user': {
+        // 取数组最后一个元素
         const prev = last(result)
         if (prev?.type === 'user') {
           result[result.indexOf(prev)] = mergeUserMessages(prev, message)
@@ -101,13 +130,18 @@ export function normalizeMessagesForAPI(
         }
         break
       }
+
+      // assistant 合并是「拼分片」（流式输出把一条回复拆成多片，靠 message.id
+      // 精确匹配拼回，且要跳过中间插入的 tool_result）
       case 'assistant': {
         let merged = false
         for (let i = result.length - 1; i >= 0; i--) {
           const prev = result[i]
+          // 如果上一条不是助手回复 & 不是 toolUseResult，则退出
           if (prev.type !== 'assistant' && !isUserToolResultMessage(prev)) {
             break
           }
+          // 消息合并
           if (prev.type === 'assistant') {
             if (prev.message.id === message.message.id) {
               result[i] = {
