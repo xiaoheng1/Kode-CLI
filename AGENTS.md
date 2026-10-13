@@ -84,3 +84,21 @@ Publishing is CI-only. Merge a reviewed version bump, then push an annotated
 prerelease versions publish under `dev`. See
 [docs/develop/releasing.md](docs/develop/releasing.md). Never publish from a
 developer workstation.
+
+```markdown
+## Greeting
+
+- **Entry:** `nihao`
+- **Meaning:** Chinese pinyin for “hello” (你好)
+- **Usage:** General greeting or placeholder note.
+```
+
+_Added on 9/30/2026, 10:40:51 PM GMT+8_
+
+## Greeting Note
+
+- **nihao** (你好) — Hello / hi
+- **Language:** Mandarin Chinese (pinyin)
+- **Use:** General greeting
+
+_Added on 9/30/2026, 10:40:54 PM GMT+8_

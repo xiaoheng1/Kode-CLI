@@ -152,6 +152,16 @@ const HAIKU_COST_PER_MILLION_OUTPUT_TOKENS = 4
 const HAIKU_COST_PER_MILLION_PROMPT_CACHE_WRITE_TOKENS = 1
 const HAIKU_COST_PER_MILLION_PROMPT_CACHE_READ_TOKENS = 0.08
 
+
+/**
+ * 请求大模型
+ * @param messages 消息集合（包含当前消息和历史消息）
+ * @param systemPrompt 系统提示词，每个元素是一个独立的块，方便前缀匹配
+ * @param maxThinkingTokens 扩展思考预算
+ * @param tools 可用工具
+ * @param signal 取消信号，一路透传到 provider 调用，用户 ctrl + c 时终止请求.
+ * @param options
+ */
 export async function queryLLM(
   messages: (UserMessage | AssistantMessage)[],
   systemPrompt: string[],
@@ -159,26 +169,53 @@ export async function queryLLM(
   tools: Tool[],
   signal: AbortSignal,
   options: {
+    /**
+     * 安全模式，影响工具描述的生成文本 -- safe mode 下工具描述会更保守
+     */
     safeMode: boolean
+    /**
+     * 模型指针
+     */
     model: string | import('#core/utils/config').ModelPointerType
+    /**
+     * 是否前置 CLI 标识块：作用，在 system prompt 最前面插入一个 CLI 标识块，方便识别这是 CLI 发起的请求
+     */
     prependCLISysprompt: boolean
+    /**
+     * 采样温度
+     */
     temperature?: number
     /**
      * Optional per-call max tokens override (used for small deterministic sub-queries like safety gates).
+     * 每次调用 max_tokens 覆盖
      */
     maxTokens?: number
     /**
      * Optional per-call stop sequences (best-effort; ignored by providers that don't support it).
      */
     stopSequences?: string[]
+    /**
+     * 工具使用上下文
+     */
     toolUseContext?: ToolUseContext
+    /**
+     * 测试相关的变量
+     */
     __testModelManager?: any
     __testQueryLLMWithPromptCaching?: any
   },
 ): Promise<AssistantMessage> {
+  // model 配置
   const modelManager = options.__testModelManager ?? getModelManager()
+  /**
+   * ModelProfile[] 实际每个模型的配置
+   * model 类型，main/task/compact/quick
+   */
   const modelResolution = modelManager.resolveModelWithInfo(options.model)
 
+  /**
+   * 获取实际后续请求 llm 的配置
+   */
   if (!modelResolution.success || !modelResolution.profile) {
     const fallbackProfile = modelManager.resolveModel(options.model)
     if (!fallbackProfile) {
@@ -200,10 +237,22 @@ export async function queryLLM(
   }
 
   const modelProfile = modelResolution.profile
+  // 例如：deepseek-flash，实际的模型名
   const resolvedModel = modelProfile.modelName
 
   // Initialize response state if toolUseContext is provided
   const toolUseContext = options.toolUseContext
+  /**
+   * 1. 对话续接：OpenAI Responses API 的 previous_response_id 字段告诉服务端"这是上一次响应的延续"，跨多次调用保持同一会话状态。
+   * 2. 推理上下文复用：GPT-5 可复用上一次响应里的 reasoning（这也是文件头部注释写的 "conversation continuity and reasoning context reuse"，responseStateManager.ts:2）。
+   * 3. 懒初始化 + 幂等：只在 responseState 为空时初始化一次，不会在多次调用间互相覆盖。
+   *
+   *   两个值得注意的细节
+   *
+   *   - 状态是内存态（Map<string, ConversationState>），不落盘；有 1 小时不活跃的自动清理（CLEANUP_INTERVAL = 60*60*1000，responseStateManager.ts:15）。进程重启后这些续接状态就没了。
+   *   - 键 conversationId 主要靠 agentId，messageId 只是兜底 —— 所以同一 agent 的多轮对话能正确命中同一条续接状态。
+   *
+   */
   if (toolUseContext && !toolUseContext.responseState) {
     const conversationId = getConversationId(
       toolUseContext.agentId,
@@ -220,6 +269,7 @@ export async function queryLLM(
 
   // Resolve and cache tool descriptions before building any provider tool schemas.
   // Some adapters build JSON schemas synchronously and rely on `cachedDescription`.
+  // 工具的 description 可能是个异步函数，而后面构建 provider 工具 schema 的代码是同步的、没法 await，只能读缓存好的 cachedDescription
   await Promise.all(tools.map(tool => resolveToolDescription(tool)))
 
   debugLogger.api('MODEL_RESOLVED', {
@@ -248,6 +298,7 @@ export async function queryLLM(
     const queryFn =
       options.__testQueryLLMWithPromptCaching ?? queryLLMWithPromptCaching
     const cleanOptions: any = { ...options }
+    // 清除测试变量
     delete cleanOptions.__testModelManager
     delete cleanOptions.__testQueryLLMWithPromptCaching
 
@@ -266,6 +317,9 @@ export async function queryLLM(
         }, // Pass resolved ModelProfile and toolUseContext
       )
 
+    /**
+     * runQuery 是"请求本身"，withVCR 是"请求的缓存代理"——它决定要不要真的调 runQuery，还是用上次录好的结果糊弄过去。
+     */
     const result = options.__testQueryLLMWithPromptCaching
       ? await runQuery()
       : await withVCR(messages, runQuery)

@@ -78,9 +78,21 @@ export function createAssistantAPIErrorMessage(
 }
 
 export type FullToolUseResult = {
+  /**
+   * 工具原始输出
+   */
   data: unknown
+  /**
+   * 给助手看的格式化内容
+   */
   resultForAssistant: ToolResultBlockParam['content']
+  /**
+   * 工具可能产生的新消息
+   */
   newMessages?: Message[]
+  /**
+   * 上下文修改器
+   */
   contextModifier?: { modifyContext: (ctx: any) => any }
 }
 

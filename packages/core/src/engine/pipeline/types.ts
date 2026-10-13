@@ -61,11 +61,20 @@ export interface ExtendedToolUseContext extends ToolUseContext {
 export type Response = { costUSD: number; response: string }
 
 export type UserMessage = {
+  /**
+   * 真正发给模型的载荷，例如：{role: 'user', content: 'xxx'}
+   */
   message: MessageParam
   type: 'user'
   uuid: UUID
+  /**
+   * 工具的执行结果
+   */
   toolUseResult?: FullToolUseResult
   options?: {
+    /**
+     * Koding 文档生成请求的身份标记，作用是让同一条消息在两个端点被特殊对待（说白了就是自动写 AGENTS.md 文档）
+     */
     isKodingRequest?: boolean
     kodingContext?: string
     isCustomCommand?: boolean
@@ -75,11 +84,23 @@ export type UserMessage = {
 }
 
 export type AssistantMessage = {
+  /**
+   * 本次调用的成本
+   */
   costUSD: number
+  /**
+   * 耗时，毫秒
+   */
   durationMs: number
+  /**
+   * 模型范围的原始消息
+   */
   message: APIAssistantMessage
   type: 'assistant'
   uuid: UUID
+  /**
+   * API 错误消息标记（合成），排除出 API + 短路 binary feedback
+   */
   isApiErrorMessage?: boolean
   /**
    * Synthetic/meta messages (not user/assistant conversational content).

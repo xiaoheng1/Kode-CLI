@@ -22,6 +22,11 @@ function getDefaultModelProfile(
   return modelProfiles.find(p => p.isActive) || null
 }
 
+/**
+ * 解析这种语法：provider:model
+ * @param modelProfiles
+ * @param input
+ */
 function resolveProviderQualifiedModel(
   modelProfiles: ModelProfile[],
   input: string,
@@ -98,10 +103,12 @@ export function resolveModelWithInfo(
   modelProfiles: ModelProfile[],
   modelParam: ModelParam,
 ): ResolvedModelInfo {
+  // modelParam 是 modelPointType，是 main/task/compact/quick
   const isPointer =
     typeof modelParam === 'string' &&
     POINTERS.includes(modelParam as ModelPointerType)
 
+  // 优先按照 pointType 去查找
   if (isPointer) {
     const pointerId = config.modelPointers?.[modelParam as ModelPointerType]
     if (!pointerId) {
@@ -132,6 +139,7 @@ export function resolveModelWithInfo(
     return { success: true, profile }
   }
 
+  // 如果 point 找不到，则按照 modelName 查找
   const raw = String(modelParam)
   let profile = findByModelName(modelProfiles, raw)
   if (!profile) profile = findByName(modelProfiles, raw)

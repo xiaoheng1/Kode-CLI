@@ -171,14 +171,35 @@ export type RequestStrategy =
   | 'claude_code_headers_system'
   | 'claude_code_full'
 
+/**
+ * 模型配置档案：让模型管理、请求发送、上下文切换、配置导入导出等所有环节都用同一个结构
+ */
 export type ModelProfile = {
+  /**
+   * 显示别名
+   */
   name: string
+  /**
+   * 服务商
+   */
   provider: ProviderType
+  /**
+   * 模型名,例如：deepseek-flash
+   */
   modelName: string
   baseURL?: string
   apiKey: string
+  /**
+   * 输出 token 上限
+   */
   maxTokens: number
+  /**
+   * 上下文窗口，取 80% 作为安全预算
+   */
   contextLength: number
+  /**
+   * 推理力度
+   */
   reasoningEffort?: 'low' | 'medium' | 'high' | 'minimal' | string
   requestStrategy?: RequestStrategy
   isActive: boolean
@@ -186,6 +207,9 @@ export type ModelProfile = {
   lastUsed?: number
   isGPT5?: boolean
   validationStatus?: 'valid' | 'needs_repair' | 'auto_repaired'
+  /**
+   * 上次校验时间戳
+   */
   lastValidation?: number
 }
 
@@ -205,12 +229,27 @@ export type AccountInfo = {
 }
 
 export type GlobalConfig = {
+  /**
+   * 项目级配置
+   */
   projects?: Record<string, ProjectConfig>
+  /**
+   * 预留
+   */
   numStartups: number
+  /**
+   * 控制后台自动检查新版本这个功能是否启用
+   */
   autoUpdaterStatus?: AutoUpdaterStatus
   userID?: string
   theme: ThemeNames
   editorMode?: 'normal' | 'vim' | 'emacs'
+  /**
+   * 思考模式
+   * disabled -- 0 token
+   * enabled -- 31999 token
+   * auto（默认）-- 仅当消息里含 ultrathink 关键字才给 31999
+   */
   thinkingMode?: 'auto' | 'enabled' | 'disabled'
   hasCompletedOnboarding?: boolean
   lastPlanModeUse?: number
@@ -218,9 +257,21 @@ export type GlobalConfig = {
   lastReleaseNotesSeen?: string
   mcpServers?: Record<string, McpServerConfig>
   disabledMcpServers?: string[]
+  /**
+   * 选择 Kode 给用户发桌面通知时用那种通道（响铃还是弹窗、还是全关）
+   */
   preferredNotifChannel: NotificationChannel
+  /**
+   * 详细输出开关：控制工具执行时是否展示额外的细节信息（默认不展示）
+   */
   verbose: boolean
+  /**
+   * 是否泡在终端的备用缓冲上，默认用主缓冲
+   */
   useAlternateBuffer?: boolean
+  /**
+   * ink 增量渲染
+   */
   incrementalRendering?: boolean
   wipeScrollbackOnClear?: boolean
   customApiKeyResponses?: {
